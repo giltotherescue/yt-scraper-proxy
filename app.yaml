@@ -1,0 +1,16 @@
+name: youtube-scraper
+services:
+- name: web
+  github:
+    branch: main
+    deploy_on_push: true
+    repo: giltotherescue/yt-scraper-proxy
+  dockerfile_path: Dockerfile
+  http_port: 5004
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: API_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: ${API_KEY} 
