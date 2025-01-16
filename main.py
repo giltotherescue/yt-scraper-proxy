@@ -599,4 +599,4 @@ def scrape():
 ###############################################################################
 if __name__ == '__main__':
     # For local testing only; in production you typically run via gunicorn or similar.
-    app.run(host='0.0.0.0', port=5004)
+    app.run(host='0.0.0.0', port=8080)

@@ -5,10 +5,11 @@ services:
     branch: main
     deploy_on_push: true
     repo: giltotherescue/yt-scraper-proxy
-  dockerfile_path: Dockerfile
-  http_port: 5004
+  http_port: 8080
   instance_count: 1
   instance_size_slug: basic-xxs
+  build_command: pip install -r requirements.txt
+  run_command: gunicorn --config gunicorn.conf.py main:app
   envs:
   - key: API_KEY
     scope: RUN_TIME
