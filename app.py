@@ -53,7 +53,7 @@ logger.setLevel(logging.INFO)
 ###############################################################################
 def configure_chrome_options() -> Options:
     """
-    Configure Chrome/Chromium options
+    Configure Chromium options
     """
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
@@ -67,7 +67,7 @@ def configure_chrome_options() -> Options:
     
     # Set binary locations for production
     if not os.getenv('FLASK_ENV') == 'development':
-        chrome_options.binary_location = "/usr/bin/chromium-browser"
+        chrome_options.binary_location = "/snap/bin/chromium"
     
     return chrome_options
 

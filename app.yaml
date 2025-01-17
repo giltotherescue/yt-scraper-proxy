@@ -26,5 +26,9 @@ services:
   instance_count: 1
   instance_size_slug: apps-s-1vcpu-1gb
   name: yt-scraper-proxy
+  build_command: |
+    snap install core
+    snap install chromium
+    pip install -r requirements.txt
   run_command: gunicorn --worker-tmp-dir /dev/shm app:app
   source_dir: /
