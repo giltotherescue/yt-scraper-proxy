@@ -61,8 +61,10 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 
 ## Files
 
-- main.py - Core application
+- app.py - Core application (Flask)
+- gunicorn_config.py - Gunicorn server configuration
 - requirements.txt - Python dependencies
 - .env - Environment variables (not in git)
 - app.yaml - DigitalOcean App Platform config
+- Procfile - Process configuration
 - .gitignore - Git ignore rules

@@ -9,7 +9,7 @@ services:
   instance_count: 1
   instance_size_slug: basic-xxs
   build_command: pip install -r requirements.txt
-  run_command: gunicorn --worker-tmp-dir /dev/shm main.wsgi --bind 0.0.0.0:8080
+  run_command: gunicorn --worker-tmp-dir /dev/shm app:app
   envs:
   - key: API_KEY
     scope: RUN_TIME
