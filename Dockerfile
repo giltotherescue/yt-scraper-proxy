@@ -1,5 +1,5 @@
-# Use an official Python 3 image as a parent image.
-FROM python:3.10-slim-buster
+# Explicitly target AMD64 for DigitalOcean deployment
+FROM --platform=linux/amd64 python:3.10-slim-buster
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

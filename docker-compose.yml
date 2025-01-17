@@ -4,6 +4,7 @@ services:
     build:
       context: .
       no_cache: true
+      platform: linux/amd64
     container_name: yt-scraper-proxy-container
     ports:
       - "8080:8080"
