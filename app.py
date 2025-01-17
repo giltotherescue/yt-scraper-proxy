@@ -51,7 +51,6 @@ logger.setLevel(logging.INFO)
 def configure_chrome_options() -> Options:
     """
     Mirror your existing Chrome config. Headless, user-agent overrides, etc.
-    For brevity, we keep it simpler than your original code. 
     """
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
@@ -63,7 +62,7 @@ def configure_chrome_options() -> Options:
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--autoplay-policy=user-gesture-required')
     
-    # Only set binary location in production
+    # Set binary locations for production
     if not os.getenv('FLASK_ENV') == 'development':
         chrome_options.binary_location = "/usr/bin/google-chrome"
     
@@ -119,7 +118,23 @@ def setup_driver():
     if os.getenv('FLASK_ENV') != 'development':
         global driver
         chrome_options = configure_chrome_options()
-        driver = webdriver.Chrome(options=chrome_options)
+        try:
+            # Let Selenium find ChromeDriver in PATH
+            driver = webdriver.Chrome(options=chrome_options)
+        except Exception as e:
+            logger.error(f"Failed to initialize Chrome driver: {str(e)}")
+            # Try specific paths as fallback
+            try:
+                service = webdriver.ChromeService(
+                    executable_path="/usr/bin/chromedriver"
+                )
+                driver = webdriver.Chrome(
+                    options=chrome_options,
+                    service=service
+                )
+            except Exception as e2:
+                logger.error(f"Failed to initialize Chrome driver with explicit path: {str(e2)}")
+                raise
         configure_driver_timeouts(driver)
 
 @app.teardown_request
