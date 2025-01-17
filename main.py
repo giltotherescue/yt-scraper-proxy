@@ -477,6 +477,7 @@ def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[
                         }
                     }
                 }
+                }
 
                 // Duration
                 const durationElem = el.querySelector('span#text.ytd-thumbnail-overlay-time-status-renderer');
@@ -599,5 +600,7 @@ def scrape():
 # Local dev entry point
 ###############################################################################
 if __name__ == '__main__':
-    # For local testing only; in production you typically run via gunicorn or similar.
-    app.run(host='0.0.0.0', port=8080)
+    # Use Flask's dev server locally, but gunicorn in production
+    port = int(os.getenv('PORT', 8080))
+    print('Listening on port %s' % (port))
+    app.run(host='0.0.0.0', port=port, debug=True)
