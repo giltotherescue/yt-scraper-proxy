@@ -68,3 +68,18 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 - app.yaml - DigitalOcean App Platform config
 - Procfile - Process configuration
 - .gitignore - Git ignore rules
+
+
+# Docker
+Run: `docker-compose up -d`
+Stop: `docker-compose down`
+Rebuild: `docker-compose up --build -d`
+Logs: `docker logs -f yt-scraper-proxy-container`
+Bind for Local Dev: `docker run -v ./:/app -p 8080:8080 yt-scraper-proxy-container`
+
+[https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
+
+```
+docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
+(venv) Dev@MacBookPro yt-scraper-proxy % docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
+```

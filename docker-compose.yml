@@ -1,0 +1,16 @@
+version: '3'
+services:
+  scraper:
+    build:
+      context: .
+      no_cache: true
+    container_name: yt-scraper-proxy-container
+    ports:
+      - "8080:8080"
+    environment:
+      - API_KEY=${API_KEY}
+    restart: unless-stopped
+    deploy:
+      restart_policy:
+        condition: on-failure
+    init: true 

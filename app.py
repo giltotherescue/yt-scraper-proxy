@@ -53,7 +53,7 @@ logger.setLevel(logging.INFO)
 ###############################################################################
 def configure_chrome_options() -> Options:
     """
-    Configure Chrome options
+    Configure Chrome options for Chromium
     """
     chrome_options = Options()
     chrome_options.add_argument('--headless=new')
@@ -65,9 +65,8 @@ def configure_chrome_options() -> Options:
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--autoplay-policy=user-gesture-required')
     
-    # Set binary locations for production
-    if not os.getenv('FLASK_ENV') == 'development':
-        chrome_options.binary_location = "/usr/bin/google-chrome"
+    # Set binary location for Chromium
+    chrome_options.binary_location = "/usr/bin/chromium"
     
     return chrome_options
 
@@ -91,15 +90,15 @@ def setup_driver():
         global driver
         chrome_options = configure_chrome_options()
         try:
-            service = Service(ChromeDriverManager().install())
+            service = Service('/usr/bin/chromedriver')
             driver = webdriver.Chrome(
-                options=chrome_options,
-                service=service
+                service=service,
+                options=chrome_options
             )
+            configure_driver_timeouts(driver)
         except Exception as e:
             logger.error(f"Failed to initialize Chrome driver: {str(e)}")
             raise
-        configure_driver_timeouts(driver)
 
 @app.teardown_request
 def cleanup_driver(exception=None):
@@ -132,12 +131,11 @@ def wait_for_page_load(driver, timeout: int = 30) -> bool:
 def scroll_to_load_videos(driver, max_videos: int, timeout: int = 60) -> List:
     """
     Scroll the channel's /videos page to load up to `max_videos` videos.
-    We'll mimic your prior scroll approach. 
     """
     start_time = time.time()
     last_count = 0
     no_change_count = 0
-    max_no_change = 3
+    max_no_change = 3  # Number of times we'll accept no new videos before stopping
     scroll_pause_time = 2
 
     while True:
@@ -145,29 +143,37 @@ def scroll_to_load_videos(driver, max_videos: int, timeout: int = 60) -> List:
         driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
         time.sleep(scroll_pause_time)
 
+        # Get current video count
         video_elements = driver.find_elements(By.CSS_SELECTOR, "ytd-rich-item-renderer, ytd-grid-video-renderer")
         current_count = len(video_elements)
 
+        # Log progress
+        logger.debug(f"Found {current_count} videos...")
+
+        # If we have enough videos, stop
         if max_videos and current_count >= max_videos:
+            logger.info(f"Reached target of {max_videos} videos")
             break
 
         # If no new videos loaded after a few tries, stop
         if current_count == last_count:
             no_change_count += 1
             if no_change_count >= max_no_change:
+                logger.info("No new videos loaded after several attempts")
                 break
         else:
             no_change_count = 0
 
         last_count = current_count
 
-        # If we exceed the timeout, break
+        # If we exceed the timeout, stop
         if (time.time() - start_time) > timeout:
-            logger.warning("Scrolling timed out.")
+            logger.warning("Scrolling timed out")
             break
 
-    # Return at most `max_videos` elements
-    return driver.find_elements(By.CSS_SELECTOR, "ytd-rich-item-renderer, ytd-grid-video-renderer")[:max_videos]
+    # Return at most max_videos elements
+    video_elements = driver.find_elements(By.CSS_SELECTOR, "ytd-rich-item-renderer, ytd-grid-video-renderer")
+    return video_elements[:max_videos] if max_videos else video_elements
 
 def get_published_date(time_ago_text: str) -> Optional[str]:
     """
@@ -227,7 +233,6 @@ def convert_duration_to_iso(duration_str: str) -> str:
 def extract_channel_metadata(driver) -> Dict[str, Any]:
     """
     Extract metadata from a channel page using ytInitialData.
-    Includes subscriber_count, video_count, view_count, country, banner, etc.
     """
     metadata = {
         'channel_id': None,
@@ -284,7 +289,7 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                 if k.strip()
             ]
 
-        # Attempt to click the "more" button to reveal additional stats (sub count, etc.)
+        # Attempt to click the "more" button to reveal additional stats
         try:
             more_button = driver.execute_script("""
                 return document.evaluate(
@@ -300,24 +305,33 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                 driver.execute_script("arguments[0].click();", more_button)
                 time.sleep(2)  # wait for modal to load
 
-                # Extract data from the modal
+                # Extract data from the modal - using the working approach
                 modal_data = driver.execute_script("""
                     const aboutSection = document.querySelector('#additional-info-container');
                     if (!aboutSection) return null;
 
-                    const getText = (sel) => {
-                        const el = aboutSection.querySelector(sel);
-                        return el ? el.textContent.trim() : null;
+                    // Helper to find text next to an icon
+                    const getText = (iconName) => {
+                        const rows = aboutSection.querySelectorAll('tr');
+                        for (const row of rows) {
+                            const icon = row.querySelector(`yt-icon[icon="${iconName}"]`);
+                            if (icon) {
+                                const textCell = row.querySelector('td:last-child');
+                                return textCell ? textCell.textContent.trim() : null;
+                            }
+                        }
+                        return null;
                     };
 
                     return {
-                        subscribers: getText('td:has(yt-icon[icon="person_radar"]) + td'),
-                        views: getText('td:has(yt-icon[icon="trending_up"]) + td'),
-                        videos: getText('td:has(yt-icon[icon="my_videos"]) + td'),
-                        joinDate: getText('td:has(yt-icon[icon="info_outline"]) + td'),
-                        country: getText('td:has(yt-icon[icon="privacy_public"]) + td')
+                        subscribers: getText("person_radar"),
+                        views: getText("trending_up"),
+                        videos: getText("my_videos"),
+                        joinDate: getText("info_outline"),
+                        country: getText("privacy_public")
                     };
                 """)
+
                 if modal_data:
                     # Parse subscriber count
                     if modal_data.get('subscribers'):
@@ -450,8 +464,7 @@ def get_video_thumbnails(video_id: str) -> Dict[str, Any]:
 
 def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[str, Any]]:
     """
-    Extract video ID, title, time_ago -> published_at, view_count, duration, etc.
-    using JavaScript for performance (similar to your old code).
+    Extract video metadata using JavaScript.
     """
     try:
         metadata = driver.execute_script("""
@@ -467,7 +480,9 @@ def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[
 
                 // Get metadata spans
                 const metadataLine = el.querySelector('#metadata-line');
-                const metaSpans = metadataLine?.querySelectorAll('span.inline-metadata-item, span.style-scope.ytd-video-meta-block');
+                const metaSpans = metadataLine?.querySelectorAll(
+                    'span.inline-metadata-item, span.style-scope.ytd-video-meta-block'
+                );
                 let timeAgo = '';
                 let viewCountText = '';
 
@@ -480,7 +495,6 @@ def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[
                             viewCountText = txt;
                         }
                     }
-                }
                 }
 
                 // Duration

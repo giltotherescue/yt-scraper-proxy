@@ -1,6 +1,0 @@
-packages:
-  - chromium
-  - chromium-driver
-  - wget
-  - gnupg
-  - unzip 
