@@ -1,4 +1,4 @@
 wget
 gnupg
-google-chrome-stable
-chromium-chromedriver
+chromium
+chromium-driver
