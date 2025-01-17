@@ -71,15 +71,35 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 
 
 # Docker
+
+## Local Development (M1/M2 Mac)
+Run: `docker-compose -f docker-compose.local.yml up -d`
+Stop: `docker-compose -f docker-compose.local.yml down`
+Rebuild: `docker-compose -f docker-compose.local.yml up --build -d`
+Logs: `docker logs -f yt-scraper-proxy-container`
+
+## Production Build (DigitalOcean)
 Run: `docker-compose up -d`
 Stop: `docker-compose down`
 Rebuild: `docker-compose up --build -d`
 Logs: `docker logs -f yt-scraper-proxy-container`
-Bind for Local Dev: `docker run -v ./:/app -p 8080:8080 yt-scraper-proxy-container`
 
+## Deploy to DigitalOcean
 [https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
 
 ```
 docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
-(venv) Dev@MacBookPro yt-scraper-proxy % docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
+docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
 ```
+
+```
+
+Key differences in the local setup:
+1. Uses `platform: linux/arm64` for M2 Mac
+2. Mounts the local directory as a volume for live code updates
+3. Same functionality but optimized for local ARM architecture
+
+Now you can:
+- Use `docker-compose.yml` for production (AMD64)
+- Use `docker-compose.local.yml` for local development (ARM64)
+- Keep the Dockerfile as is with AMD64 for production deployments

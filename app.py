@@ -13,6 +13,7 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from functools import wraps
+import platform
 
 from flask import Flask, request, jsonify
 from selenium import webdriver
@@ -613,6 +614,50 @@ def scrape():
     except Exception as e:
         logger.error(f"Scrape error: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+###############################################################################
+# Health Check Endpoint
+###############################################################################
+@app.route('/_health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint for DigitalOcean App Platform.
+    Returns basic system information and status.
+    """
+    try:
+        # Basic system info
+        health_data = {
+            "status": "pass",
+            "version": "1.0.0",  # You can update this with your actual version
+            "timestamp": datetime.utcnow().isoformat(),
+            "system": {
+                "python_version": platform.python_version(),
+                "platform": platform.platform(),
+            }
+        }
+
+        # Check if Selenium/Chrome is working
+        try:
+            if driver:
+                # Simple test to ensure browser is responsive
+                driver.execute_script("return navigator.userAgent")
+                health_data["selenium"] = "operational"
+            else:
+                health_data["selenium"] = "not_initialized"
+        except Exception as e:
+            health_data["selenium"] = f"error: {str(e)}"
+            # Don't fail the health check just because Selenium has an issue
+            # DO might be making frequent health checks and we don't want to
+            # exhaust resources
+
+        return jsonify(health_data), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "fail",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }), 500
 
 ###############################################################################
 # Local dev entry point
