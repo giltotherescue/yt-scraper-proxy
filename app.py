@@ -64,7 +64,7 @@ def configure_chrome_options() -> Options:
     
     # Set binary locations for production
     if not os.getenv('FLASK_ENV') == 'development':
-        chrome_options.binary_location = "/usr/bin/chromium"
+        chrome_options.binary_location = "/usr/bin/chromium-browser"
     
     # List of common browser user agents to rotate through
     user_agents = [
@@ -120,7 +120,7 @@ def setup_driver():
         chrome_options = configure_chrome_options()
         try:
             service = webdriver.ChromeService(
-                executable_path="/usr/bin/chromedriver"
+                executable_path="/usr/lib/chromium-browser/chromedriver"
             )
             driver = webdriver.Chrome(
                 options=chrome_options,
