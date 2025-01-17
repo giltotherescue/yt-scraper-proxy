@@ -62,6 +62,7 @@ def configure_chrome_options() -> Options:
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--autoplay-policy=user-gesture-required')
+    chrome_options.binary_location = "/usr/bin/chromium"
     
     # List of common browser user agents to rotate through
     user_agents = [
