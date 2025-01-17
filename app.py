@@ -62,7 +62,10 @@ def configure_chrome_options() -> Options:
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--autoplay-policy=user-gesture-required')
-    chrome_options.binary_location = "/usr/bin/chromium"
+    
+    # Only set binary location in production
+    if not os.getenv('FLASK_ENV') == 'development':
+        chrome_options.binary_location = "/usr/bin/google-chrome"
     
     # List of common browser user agents to rotate through
     user_agents = [
@@ -102,9 +105,31 @@ def configure_driver_timeouts(driver: webdriver.Chrome) -> None:
     driver.set_page_load_timeout(20)
     driver.implicitly_wait(5)
 
-chrome_options = configure_chrome_options()
-driver = webdriver.Chrome(options=chrome_options)
-configure_driver_timeouts(driver)
+# Only initialize the driver for local development
+if os.getenv('FLASK_ENV') == 'development':
+    chrome_options = configure_chrome_options()
+    driver = webdriver.Chrome(options=chrome_options)
+    configure_driver_timeouts(driver)
+else:
+    driver = None
+
+@app.before_request
+def setup_driver():
+    """Initialize driver for each request in production"""
+    if os.getenv('FLASK_ENV') != 'development':
+        global driver
+        chrome_options = configure_chrome_options()
+        driver = webdriver.Chrome(options=chrome_options)
+        configure_driver_timeouts(driver)
+
+@app.teardown_request
+def cleanup_driver(exception=None):
+    """Cleanup driver after each request in production"""
+    if os.getenv('FLASK_ENV') != 'development':
+        global driver
+        if driver:
+            driver.quit()
+            driver = None
 
 ###############################################################################
 # Utility Functions for Metadata Extraction
