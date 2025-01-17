@@ -27,8 +27,10 @@ services:
   instance_size_slug: apps-s-1vcpu-1gb
   name: yt-scraper-proxy
   build_command: |
-    snap install core
-    snap install chromium
+    wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | tee /etc/apt/trusted.gpg.d/google.asc
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google.list
+    apt-get update
+    apt-get install -y google-chrome-stable chromium-chromedriver
     pip install -r requirements.txt
   run_command: gunicorn --worker-tmp-dir /dev/shm app:app
   source_dir: /
