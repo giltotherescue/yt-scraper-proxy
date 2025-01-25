@@ -11,9 +11,10 @@ import logging
 import re
 import random
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from functools import wraps
 import platform
+from http import HTTPStatus
 
 from flask import Flask, request, jsonify
 from selenium import webdriver
@@ -23,31 +24,49 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType
 
 # Load environment variables from .env file
 load_dotenv()
 
 ###############################################################################
-# Configure Flask, CORS & Rate Limiting
+# Configure Flask, CORS
 ###############################################################################
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# Configure rate limiting
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["100 per day", "10 per minute"]
-)
-
 logger = logging.getLogger("proxy_scraper")
 logger.setLevel(logging.INFO)
+
+def error_response(message: str, status_code: int, details: Optional[Dict] = None) -> tuple[Dict[str, Any], int]:
+    """
+    Create a standardized error response.
+    
+    Args:
+        message: Main error message
+        status_code: HTTP status code
+        details: Optional dictionary with additional error details
+    
+    Returns:
+        Tuple of (response_dict, status_code)
+    """
+    response = {
+        "error": {
+            "message": message,
+            "status_code": status_code,
+            "type": HTTPStatus(status_code).phrase
+        }
+    }
+    if details:
+        response["error"]["details"] = details
+    
+    # Log error details
+    logger.error(f"Error response: {message} ({status_code})")
+    if details:
+        logger.error(f"Error details: {details}")
+        
+    return jsonify(response), status_code
 
 ###############################################################################
 # Selenium Driver Setup (Global for Simplicity)
@@ -292,6 +311,7 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
 
         # Attempt to click the "more" button to reveal additional stats
         try:
+            logger.debug("Attempting to find and click 'more' button...")
             more_button = driver.execute_script("""
                 return document.evaluate(
                     "//button[contains(@class, 'truncated-text-wiz__absolute-button') or "
@@ -303,14 +323,15 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                 ).singleNodeValue;
             """)
             if more_button:
+                logger.debug("'More' button found, clicking...")
                 driver.execute_script("arguments[0].click();", more_button)
                 time.sleep(2)  # wait for modal to load
-
-                # Extract data from the modal - using the working approach
+                
+                logger.debug("Extracting modal data...")
                 modal_data = driver.execute_script("""
                     const aboutSection = document.querySelector('#additional-info-container');
                     if (!aboutSection) return null;
-
+                    
                     // Helper to find text next to an icon
                     const getText = (iconName) => {
                         const rows = aboutSection.querySelectorAll('tr');
@@ -323,7 +344,7 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                         }
                         return null;
                     };
-
+                    
                     return {
                         subscribers: getText("person_radar"),
                         views: getText("trending_up"),
@@ -332,55 +353,53 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                         country: getText("privacy_public")
                     };
                 """)
-
+                
                 if modal_data:
+                    logger.debug(f"Modal data extracted: {modal_data}")
+
                     # Parse subscriber count
                     if modal_data.get('subscribers'):
-                        sub_str = modal_data['subscribers']
-                        # "3.1K subscribers" => "3.1K"
-                        sub_val = re.split(r'\s+', sub_str)[0]
+                        sub_count = modal_data['subscribers'].split(' ')[0]  # Get "3.1K" from "3.1K subscribers"
                         multiplier = 1
-                        if 'K' in sub_val:
+                        if 'K' in sub_count:
                             multiplier = 1000
-                            sub_val = sub_val.replace('K', '')
-                        elif 'M' in sub_val:
+                            sub_count = sub_count.replace('K', '')
+                        elif 'M' in sub_count:
                             multiplier = 1000000
-                            sub_val = sub_val.replace('M', '')
-                        elif 'B' in sub_val:
+                            sub_count = sub_count.replace('M', '')
+                        elif 'B' in sub_count:
                             multiplier = 1000000000
-                            sub_val = sub_val.replace('B', '')
+                            sub_count = sub_count.replace('B', '')
                         try:
-                            metadata['subscriber_count'] = int(float(sub_val) * multiplier)
-                        except:
-                            pass
+                            metadata['subscriber_count'] = int(float(sub_count) * multiplier)
+                        except (ValueError, TypeError):
+                            metadata['subscriber_count'] = 0
 
                     # Parse video count
                     if modal_data.get('videos'):
-                        # e.g. "235 videos"
                         try:
-                            vid_str = re.split(r'\s+', modal_data['videos'])[0].replace(',', '')
-                            metadata['video_count'] = int(vid_str)
-                        except:
-                            pass
+                            video_count = modal_data['videos'].split(' ')[0].replace(',', '')
+                            metadata['video_count'] = int(video_count)
+                        except (ValueError, TypeError):
+                            metadata['video_count'] = 0
 
                     # Parse view count
                     if modal_data.get('views'):
-                        # e.g. "234,567 views"
                         try:
-                            view_str = re.split(r'\s+', modal_data['views'])[0].replace(',', '')
-                            multi = 1
-                            if 'K' in view_str:
-                                multi = 1000
-                                view_str = view_str.replace('K', '')
-                            elif 'M' in view_str:
-                                multi = 1000000
-                                view_str = view_str.replace('M', '')
-                            elif 'B' in view_str:
-                                multi = 1000000000
-                                view_str = view_str.replace('B', '')
-                            metadata['view_count'] = int(float(view_str) * multi)
-                        except:
-                            pass
+                            view_count = modal_data['views'].split(' ')[0].replace(',', '')
+                            multiplier = 1
+                            if 'K' in view_count:
+                                multiplier = 1000
+                                view_count = view_count.replace('K', '')
+                            elif 'M' in view_count:
+                                multiplier = 1000000
+                                view_count = view_count.replace('M', '')
+                            elif 'B' in view_count:
+                                multiplier = 1000000000
+                                view_count = view_count.replace('B', '')
+                            metadata['view_count'] = int(float(view_count) * multiplier)
+                        except (ValueError, TypeError):
+                            metadata['view_count'] = 0
 
                     # Parse country
                     if modal_data.get('country'):
@@ -517,29 +536,24 @@ def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[
         if not metadata or not metadata.get('video_id'):
             return None
 
-        # Process the extracted metadata
-        # 1) Published date
-        published_at = get_published_date(metadata.get('time_ago', ''))
-
-        # 2) View count
+        # Process view count
         view_count = None
         vt = metadata.get('view_count_text', '')
         match = re.search(r'([\d,.]+)([KMB]?)\s+views?', vt)
         if match:
             base = float(match.group(1).replace(',', ''))
             suffix = match.group(2)
-            multi = {'K': 1e3, 'M': 1e6, 'B': 1e9, '': 1}[suffix]
-            view_count = int(base * multi)
+            multiplier = {'K': 1e3, 'M': 1e6, 'B': 1e9, '': 1}[suffix]
+            view_count = int(base * multiplier)
 
-        # 3) Duration -> ISO 8601
-        iso_duration = convert_duration_to_iso(metadata.get('duration', ''))
+        # Get published date
+        published_at = get_published_date(metadata.get('time_ago', ''))
 
-        # Construct final dictionary
         return {
             'video_id': metadata['video_id'],
             'title': metadata['title'],
             'published_at': published_at,
-            'duration': iso_duration,
+            'duration': convert_duration_to_iso(metadata.get('duration', '')),
             'view_count': view_count,
             'thumbnails': get_video_thumbnails(metadata['video_id']),
             'url': metadata['url']
@@ -561,59 +575,132 @@ def require_api_key(f):
 # Flask Endpoint
 ###############################################################################
 @app.route('/scrape', methods=['POST'])
-@limiter.limit("10 per minute")
 @require_api_key
 def scrape():
     """
     POST /scrape
     Body JSON: { "channel_handle": "@example", "max_videos": 100 }
-    Returns JSON with:
-    {
-      "channel": {...all channel metadata...},
-      "videos": [ {...}, {...} ]
-    }
     """
-    payload = request.json
-    if not payload or 'channel_handle' not in payload:
-        return jsonify({"error": "channel_handle is required"}), 400
-
-    channel_handle = payload['channel_handle'].strip()
-    max_videos = payload.get('max_videos', 100)
-
-    # Construct channel "videos" URL
-    # e.g. "https://www.youtube.com/@example/videos"
-    url = f"https://youtube.com/{channel_handle}/videos"
-    # If handle doesn't start with '@', we just assume "channel_handle" is the path
-    # or maybe they're passing "channel/UC123..." - adapt as needed.
-    logger.info(f"Scraping channel: {channel_handle} with max_videos={max_videos}")
-
     try:
-        driver.get(url)
-        if not wait_for_page_load(driver):
-            return jsonify({"error": "Failed to fully load the page"}), 500
+        payload = request.json
+        if not payload:
+            return error_response(
+                "Missing JSON payload", 
+                HTTPStatus.BAD_REQUEST
+            )
 
-        # Extract channel-level metadata
-        channel_data = extract_channel_metadata(driver)
+        if 'channel_handle' not in payload:
+            return error_response(
+                "channel_handle is required in request body",
+                HTTPStatus.BAD_REQUEST,
+                {"required_fields": ["channel_handle"]}
+            )
 
-        # Scroll to load videos
-        video_elements = scroll_to_load_videos(driver, max_videos)
-        logger.info(f"Found {len(video_elements)} video elements after scrolling")
+        channel_handle = payload['channel_handle'].strip()
+        max_videos = payload.get('max_videos', 100)
 
-        videos = []
-        for elem in video_elements:
-            vdata = extract_video_metadata_from_element(driver, elem)
-            if vdata:
-                videos.append(vdata)
+        url = f"https://youtube.com/{channel_handle}/videos"
+        logger.info(f"Scraping channel: {channel_handle} with max_videos={max_videos}")
 
-        response_data = {
-            "channel": channel_data,
-            "videos": videos
-        }
-        return jsonify(response_data), 200
+        try:
+            driver.get(url)
+            if not wait_for_page_load(driver):
+                return error_response(
+                    "Failed to load YouTube page",
+                    HTTPStatus.BAD_GATEWAY,
+                    {"url": url, "timeout": "30s"}
+                )
 
+            # Extract channel-level metadata
+            channel_data = extract_channel_metadata(driver)
+            if not channel_data.get('channel_id'):
+                return error_response(
+                    "Channel not found or is unavailable",
+                    HTTPStatus.NOT_FOUND,
+                    {"channel_handle": channel_handle}
+                )
+
+            # Scroll to load videos
+            video_elements = scroll_to_load_videos(driver, max_videos)
+            logger.info(f"Found {len(video_elements)} video elements after scrolling")
+
+            if not video_elements:
+                return error_response(
+                    "No videos found for channel",
+                    HTTPStatus.NOT_FOUND,
+                    {
+                        "channel_handle": channel_handle,
+                        "channel_id": channel_data.get('channel_id'),
+                        "possible_reasons": [
+                            "Channel has no public videos",
+                            "Channel's videos tab is unavailable",
+                            "YouTube layout changed"
+                        ]
+                    }
+                )
+
+            videos = []
+            failed_videos = []
+            for elem in video_elements:
+                try:
+                    vdata = extract_video_metadata_from_element(driver, elem)
+                    if vdata:
+                        videos.append(vdata)
+                    else:
+                        failed_videos.append({
+                            "index": len(videos) + len(failed_videos),
+                            "reason": "Failed to extract metadata"
+                        })
+                except Exception as e:
+                    failed_videos.append({
+                        "index": len(videos) + len(failed_videos),
+                        "reason": str(e)
+                    })
+
+            response_data = {
+                "channel": channel_data,
+                "videos": videos,
+                "metadata": {
+                    "total_videos_found": len(video_elements),
+                    "videos_processed": len(videos),
+                    "videos_failed": len(failed_videos),
+                    "failed_videos_details": failed_videos if failed_videos else None
+                }
+            }
+            return jsonify(response_data), HTTPStatus.OK
+
+        except TimeoutException:
+            return error_response(
+                "Request timed out while loading YouTube page",
+                HTTPStatus.GATEWAY_TIMEOUT,
+                {"url": url, "timeout": "30s"}
+            )
+        except WebDriverException as e:
+            return error_response(
+                "Browser automation error",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": str(e), "type": "selenium_error"}
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error during scraping: {str(e)}")
+            return error_response(
+                "Internal server error during scraping",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": str(e)}
+            )
+
+    except json.JSONDecodeError:
+        return error_response(
+            "Invalid JSON in request body",
+            HTTPStatus.BAD_REQUEST
+        )
     except Exception as e:
-        logger.error(f"Scrape error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Unexpected error processing request: {str(e)}")
+        return error_response(
+            "Internal server error",
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            {"error": str(e)}
+        )
 
 ###############################################################################
 # Health Check Endpoint

@@ -1,5 +1,8 @@
-# Explicitly target AMD64 for DigitalOcean deployment
-FROM --platform=linux/amd64 python:3.10-slim-buster
+# Use this for local development on Mac
+FROM --platform=linux/arm64 python:3.10-slim-buster
+
+# Use this for DigitalOcean deployment
+# FROM --platform=linux/amd64 python:3.10-slim-buster
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

@@ -73,33 +73,47 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 # Docker
 
 ## Local Development (M1/M2 Mac)
-Run: `docker-compose -f docker-compose.local.yml up -d`
-Stop: `docker-compose -f docker-compose.local.yml down`
-Rebuild: `docker-compose -f docker-compose.local.yml up --build -d`
-Logs: `docker logs -f yt-scraper-proxy-container`
+
+1. First time setup:
+    ```bash
+    # Important: In Dockerfile, comment/uncomment the appropriate architecture line:
+    
+    # For M1/M2 Mac (ARM64):
+    # FROM --platform=linux/arm64 python:3.10-slim-buster
+    
+    # For DigitalOcean/Production (AMD64): 
+    # FROM --platform=linux/amd64 python:3.10-slim-buster
+
+    docker-compose up --build -d
+    ```
+
+2. Regular usage:
+    ```bash
+    # Start with live code syncing
+    docker-compose up -d
+
+    # View logs
+    docker logs -f yt-scraper-proxy-container
+
+    # Stop containers 
+    docker-compose down
+    ```
+
+The local setup automatically syncs your code changes thanks to volume mounting in docker-compose.yml. You don't need to rebuild the container when you make code changes - just save your files and the changes will be reflected immediately.
+
+Note: You only need to rebuild (`--build`) if you:
+- Change requirements.txt
+- Modify the Dockerfile
+- Need to reset the container state
 
 ## Production Build (DigitalOcean)
-Run: `docker-compose up -d`
-Stop: `docker-compose down`
-Rebuild: `docker-compose up --build -d`
-Logs: `docker logs -f yt-scraper-proxy-container`
-
-## Deploy to DigitalOcean
-[https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
-
 ```
+# Build
+docker-compose build
+# Push to DigitalOcean Container Registry
 docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
 docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
 ```
 
-```
-
-Key differences in the local setup:
-1. Uses `platform: linux/arm64` for M2 Mac
-2. Mounts the local directory as a volume for live code updates
-3. Same functionality but optimized for local ARM architecture
-
-Now you can:
-- Use `docker-compose.yml` for production (AMD64)
-- Use `docker-compose.local.yml` for local development (ARM64)
-- Keep the Dockerfile as is with AMD64 for production deployments
+## Deploy to DigitalOcean
+[https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
