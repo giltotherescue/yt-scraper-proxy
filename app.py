@@ -22,6 +22,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import urllib.parse
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -84,6 +85,42 @@ def configure_chrome_options() -> Options:
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument('--mute-audio')
     chrome_options.add_argument('--autoplay-policy=user-gesture-required')
+    # Randomly select one of several modern user agents (Updated January 2024)
+    user_agents = [
+        # Chrome latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        
+        # Firefox latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.3; rv:122.0) Gecko/20100101 Firefox/122.0',
+        
+        # Safari latest
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15',
+        
+        # Edge latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Edg/121.0.2277.128',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Edg/121.0.2277.128',
+        
+        # Brave latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Brave/121.0.0.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Brave/121.0.0.0',
+        
+        # Opera latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 OPR/107.0.0.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 OPR/107.0.0.0',
+        
+        # Vivaldi latest
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Vivaldi/6.5.3206.63',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Vivaldi/6.5.3206.63',
+        
+        # Arc Browser (Mac only)
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Arc/1.21.1',
+        
+        # Yandex Browser
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 YaBrowser/24.1.0 Safari/537.36'
+    ]
+    chrome_options.add_argument(f'--user-agent={random.choice(user_agents)}')
     
     # Set binary location for Chromium
     chrome_options.binary_location = "/usr/bin/chromium"
@@ -94,40 +131,18 @@ def configure_driver_timeouts(driver: webdriver.Chrome) -> None:
     driver.set_script_timeout(10)
     driver.set_page_load_timeout(20)
     driver.implicitly_wait(5)
-
-# Only initialize the driver for local development
-if os.getenv('FLASK_ENV') == 'development':
-    chrome_options = configure_chrome_options()
-    driver = webdriver.Chrome(options=chrome_options)
-    configure_driver_timeouts(driver)
-else:
-    driver = None
-
-@app.before_request
-def setup_driver():
-    """Initialize driver for each request in production"""
-    if os.getenv('FLASK_ENV') != 'development':
-        global driver
-        chrome_options = configure_chrome_options()
-        try:
-            service = Service('/usr/bin/chromedriver')
-            driver = webdriver.Chrome(
-                service=service,
-                options=chrome_options
-            )
-            configure_driver_timeouts(driver)
-        except Exception as e:
-            logger.error(f"Failed to initialize Chrome driver: {str(e)}")
-            raise
+ 
+###############################################################################
+# Initialize the Selenium WebDriver globally for both dev and production
+###############################################################################
+chrome_options = configure_chrome_options()
+service = Service('/usr/bin/chromedriver')
+driver = webdriver.Chrome(service=service, options=chrome_options)
+configure_driver_timeouts(driver)
 
 @app.teardown_request
 def cleanup_driver(exception=None):
-    """Cleanup driver after each request in production"""
-    if os.getenv('FLASK_ENV') != 'development':
-        global driver
-        if driver:
-            driver.quit()
-            driver = None
+    pass
 
 ###############################################################################
 # Utility Functions for Metadata Extraction
@@ -458,6 +473,104 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
 
     return metadata
 
+def extract_channel_about_data(driver, channel_handle: str) -> Dict[str, Any]:
+    """
+    Navigate to the channel's /about page and extract stats from ytInitialData
+    (subscriber_count, view_count, joined_date, country, etc.).
+    This is more reliable than trying to click a 'More' button on the main page.
+    """
+    about_data = {
+        'subscriber_count': None,
+        'view_count': None,
+        'country': None,
+        'published_at': None,  # joined date
+    }
+
+    # 1) Navigate to about page
+    about_url = f"https://youtube.com/{channel_handle}/about"
+    driver.get(about_url)
+    if not wait_for_page_load(driver, timeout=30):
+        logger.warning("Channel /about page did not finish loading in 30s.")
+        return about_data
+
+    try:
+        # 2) Extract the full ytInitialData from the about page
+        initial_data = driver.execute_script("return window.ytInitialData;")
+        if not initial_data:
+            logger.warning("No ytInitialData found on /about page.")
+            return about_data
+
+        # 3) The about page typically stores stats in the 'contents.twoColumnBrowseResultsRenderer.tabs'
+        #    array, under an About tab that includes 'sectionListRenderer'.
+        tabs = (
+            initial_data.get('contents', {})
+            .get('twoColumnBrowseResultsRenderer', {})
+            .get('tabs', [])
+        )
+        about_tab = None
+        for t in tabs:
+            tab_renderer = t.get('tabRenderer')
+            if tab_renderer and 'about' in tab_renderer.get('endpoint', {}).get('commandMetadata', {}).get('webCommandMetadata', {}).get('url', ''):
+                about_tab = tab_renderer
+                break
+
+        if not about_tab:
+            logger.warning("Could not find 'About' tab in the /about page data.")
+            return about_data
+
+        section_list = about_tab.get('content', {}).get('sectionListRenderer', {})
+        items = section_list.get('items', [])
+
+        # You can find these stats typically in metadataRowContainerRenderer or similar. We'll do a quick search:
+        for item in items:
+            # Some channels structure data differently, so we must be flexible.
+            # Usually, there's a metadataRowContainerRenderer with multiple metadataRowRenderers
+            container = item.get('itemSectionRenderer', {}).get('contents', [{}])[0].get('metadataRowContainerRenderer')
+            if not container:
+                continue
+            rows = container.get('rows', [])
+
+            for row in rows:
+                r = row.get('metadataRowRenderer', {})
+                row_title = r.get('title', {}).get('simpleText', '').lower()
+                row_value = r.get('contents', [{}])[0].get('simpleText', '')
+
+                if 'joined' in row_title:  # "Joined Jan 1, 2022"
+                    # attempt to parse date
+                    try:
+                        date_str = row_value.replace('Joined', '').strip()
+                        dt = datetime.strptime(date_str, '%b %d, %Y')
+                        about_data['published_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        pass
+                elif 'views' in row_title:
+                    # e.g. "1,234,567 views"
+                    match = re.search(r'([\d,.]+)', row_value)
+                    if match:
+                        about_data['view_count'] = int(match.group(1).replace(',', ''))
+                elif 'location' in row_title:
+                    about_data['country'] = row_value
+
+        # 4) Subscriber count in c4TabbedHeaderRenderer
+        c4_header = (
+            initial_data.get('header', {})
+            .get('c4TabbedHeaderRenderer', {})
+        )
+        sub_count_text = c4_header.get('subscriberCountText', {}).get('simpleText', '')
+        # e.g. "3.14M subscribers"
+        match = re.search(r'([\d,.]+)([KMB])?\s+sub', sub_count_text, re.IGNORECASE)
+        if match:
+            base = float(match.group(1).replace(',', ''))
+            suffix = match.group(2) or ''
+            mult = {'K':1e3, 'M':1e6, 'B':1e9}.get(suffix, 1)
+            about_data['subscriber_count'] = int(base * mult)
+
+    except Exception as exc:
+        logger.warning(f"Error extracting /about data: {exc}")
+
+    return about_data
+
+
 def get_video_thumbnails(video_id: str) -> Dict[str, Any]:
     """
     Generate thumbnail URLs for multiple sizes for a given video ID.
@@ -602,6 +715,10 @@ def scrape():
         url = f"https://youtube.com/{channel_handle}/videos"
         logger.info(f"Scraping channel: {channel_handle} with max_videos={max_videos}")
 
+        # 1) Extract "About" data first to get subscriber_count, total views, joined date, etc.
+        #    This does not rely on the fragile "more" button or ephemeral DOM classes.
+        about_data = extract_channel_about_data(driver, channel_handle)
+
         try:
             driver.get(url)
             if not wait_for_page_load(driver):
@@ -619,6 +736,12 @@ def scrape():
                     HTTPStatus.NOT_FOUND,
                     {"channel_handle": channel_handle}
                 )
+
+            # Merge the about_data stats into the main channel_data
+            for k in ['subscriber_count','view_count','country','published_at']:
+                if about_data.get(k) is not None:
+                    channel_data[k] = about_data[k]
+
 
             # Scroll to load videos
             video_elements = scroll_to_load_videos(driver, max_videos)
