@@ -30,7 +30,7 @@ from selenium.webdriver.chrome.service import Service
 
 from utils import error_response, get_published_date, convert_duration_to_iso
 from browser_utils import configure_chrome_options, configure_driver_timeouts, wait_for_page_load
-from youtube_extractor import get_video_thumbnails, extract_video_metadata_from_element, extract_channel_about_data, extract_channel_metadata
+from youtube_extractor import get_video_thumbnails, extract_video_metadata_from_element, extract_channel_metadata
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,7 +42,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 logger = logging.getLogger("proxy_scraper")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 ###############################################################################
 # Initialize the Selenium WebDriver globally for both dev and production
@@ -147,102 +147,70 @@ def scrape():
         url = f"https://youtube.com/{channel_handle}/videos"
         logger.info(f"Scraping channel: {channel_handle} with max_videos={max_videos}")
 
-        # 1) Extract "About" data first to get subscriber_count, total views, joined date, etc.
-        #    This does not rely on the fragile "more" button or ephemeral DOM classes.
-        about_data = extract_channel_about_data(driver, channel_handle)
-
-        try:
-            driver.get(url)
-            if not wait_for_page_load(driver):
-                return error_response(
-                    "Failed to load YouTube page",
-                    HTTPStatus.BAD_GATEWAY,
-                    {"url": url, "timeout": "30s"}
-                )
-
-            # Extract channel-level metadata
-            channel_data = extract_channel_metadata(driver)
-            if not channel_data.get('channel_id'):
-                return error_response(
-                    "Channel not found or is unavailable",
-                    HTTPStatus.NOT_FOUND,
-                    {"channel_handle": channel_handle}
-                )
-
-            # Merge the about_data stats into the main channel_data
-            for k in ['subscriber_count','view_count','country','published_at']:
-                if about_data.get(k) is not None:
-                    channel_data[k] = about_data[k]
-
-
-            # Scroll to load videos
-            video_elements = scroll_to_load_videos(driver, max_videos)
-            logger.info(f"Found {len(video_elements)} video elements after scrolling")
-
-            if not video_elements:
-                return error_response(
-                    "No videos found for channel",
-                    HTTPStatus.NOT_FOUND,
-                    {
-                        "channel_handle": channel_handle,
-                        "channel_id": channel_data.get('channel_id'),
-                        "possible_reasons": [
-                            "Channel has no public videos",
-                            "Channel's videos tab is unavailable",
-                            "YouTube layout changed"
-                        ]
-                    }
-                )
-
-            videos = []
-            failed_videos = []
-            for elem in video_elements:
-                try:
-                    vdata = extract_video_metadata_from_element(driver, elem)
-                    if vdata:
-                        videos.append(vdata)
-                    else:
-                        failed_videos.append({
-                            "index": len(videos) + len(failed_videos),
-                            "reason": "Failed to extract metadata"
-                        })
-                except Exception as e:
-                    failed_videos.append({
-                        "index": len(videos) + len(failed_videos),
-                        "reason": str(e)
-                    })
-
-            response_data = {
-                "channel": channel_data,
-                "videos": videos,
-                "metadata": {
-                    "total_videos_found": len(video_elements),
-                    "videos_processed": len(videos),
-                    "videos_failed": len(failed_videos),
-                    "failed_videos_details": failed_videos if failed_videos else None
-                }
-            }
-            return jsonify(response_data), HTTPStatus.OK
-
-        except TimeoutException:
+        driver.get(url)
+        if not wait_for_page_load(driver):
             return error_response(
-                "Request timed out while loading YouTube page",
-                HTTPStatus.GATEWAY_TIMEOUT,
+                "Failed to load YouTube page",
+                HTTPStatus.BAD_GATEWAY,
                 {"url": url, "timeout": "30s"}
             )
-        except WebDriverException as e:
+
+        channel_data = extract_channel_metadata(driver)
+        if not channel_data.get('channel_id'):
             return error_response(
-                "Browser automation error",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                {"error": str(e), "type": "selenium_error"}
+                "Channel not found or is unavailable",
+                HTTPStatus.NOT_FOUND,
+                {"channel_handle": channel_handle}
             )
-        except Exception as e:
-            logger.error(f"Unexpected error during scraping: {str(e)}")
+
+        # Scroll to load videos
+        video_elements = scroll_to_load_videos(driver, max_videos)
+        logger.info(f"Found {len(video_elements)} video elements after scrolling")
+
+        if not video_elements:
             return error_response(
-                "Internal server error during scraping",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                {"error": str(e)}
+                "No videos found for channel",
+                HTTPStatus.NOT_FOUND,
+                {
+                    "channel_handle": channel_handle,
+                    "channel_id": channel_data.get('channel_id'),
+                    "possible_reasons": [
+                        "Channel has no public videos",
+                        "Channel's videos tab is unavailable",
+                        "YouTube layout changed"
+                    ]
+                }
             )
+
+        videos = []
+        failed_videos = []
+        for elem in video_elements:
+            try:
+                vdata = extract_video_metadata_from_element(driver, elem)
+                if vdata:
+                    videos.append(vdata)
+                else:
+                    failed_videos.append({
+                        "index": len(videos) + len(failed_videos),
+                        "reason": "Failed to extract metadata"
+                    })
+            except Exception as e:
+                failed_videos.append({
+                    "index": len(videos) + len(failed_videos),
+                    "reason": str(e)
+                })
+
+        response_data = {
+            "channel": channel_data,
+            "videos": videos,
+            "metadata": {
+                "total_videos_found": len(video_elements),
+                "videos_processed": len(videos),
+                "videos_failed": len(failed_videos),
+                "failed_videos_details": failed_videos if failed_videos else None
+            }
+        }
+        return jsonify(response_data), HTTPStatus.OK
 
     except json.JSONDecodeError:
         return error_response(

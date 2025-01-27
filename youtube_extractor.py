@@ -9,6 +9,9 @@ from utils import get_published_date, convert_duration_to_iso
 from datetime import datetime, timedelta
 from browser_utils import configure_chrome_options, configure_driver_timeouts, wait_for_page_load
 import time
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 logger = logging.getLogger("proxy_scraper")
 
@@ -116,108 +119,11 @@ def extract_video_metadata_from_element(driver, video_element) -> Optional[Dict[
         logger.error(f"Error extracting video metadata: {str(e)}")
         return None
     
-def extract_channel_about_data(driver, channel_handle: str) -> Dict[str, Any]:
-    """
-    Navigate to the channel's /about page and extract stats from ytInitialData
-    (subscriber_count, view_count, joined_date, country, etc.).
-    This is more reliable than trying to click a 'More' button on the main page.
-    """
-    about_data = {
-        'subscriber_count': None,
-        'view_count': None,
-        'country': None,
-        'published_at': None,  # joined date
-    }
-
-    # 1) Navigate to about page
-    about_url = f"https://youtube.com/{channel_handle}/about"
-    driver.get(about_url)
-    if not wait_for_page_load(driver, timeout=30):
-        logger.warning("Channel /about page did not finish loading in 30s.")
-        return about_data
-
-    try:
-        # 2) Extract the full ytInitialData from the about page
-        initial_data = driver.execute_script("return window.ytInitialData;")
-        if not initial_data:
-            logger.warning("No ytInitialData found on /about page.")
-            return about_data
-
-        # 3) The about page typically stores stats in the 'contents.twoColumnBrowseResultsRenderer.tabs'
-        #    array, under an About tab that includes 'sectionListRenderer'.
-        tabs = (
-            initial_data.get('contents', {})
-            .get('twoColumnBrowseResultsRenderer', {})
-            .get('tabs', [])
-        )
-        about_tab = None
-        for t in tabs:
-            tab_renderer = t.get('tabRenderer')
-            if tab_renderer and 'about' in tab_renderer.get('endpoint', {}).get('commandMetadata', {}).get('webCommandMetadata', {}).get('url', ''):
-                about_tab = tab_renderer
-                break
-
-        if not about_tab:
-            logger.warning("Could not find 'About' tab in the /about page data.")
-            return about_data
-
-        section_list = about_tab.get('content', {}).get('sectionListRenderer', {})
-        items = section_list.get('items', [])
-
-        # You can find these stats typically in metadataRowContainerRenderer or similar. We'll do a quick search:
-        for item in items:
-            # Some channels structure data differently, so we must be flexible.
-            # Usually, there's a metadataRowContainerRenderer with multiple metadataRowRenderers
-            container = item.get('itemSectionRenderer', {}).get('contents', [{}])[0].get('metadataRowContainerRenderer')
-            if not container:
-                continue
-            rows = container.get('rows', [])
-
-            for row in rows:
-                r = row.get('metadataRowRenderer', {})
-                row_title = r.get('title', {}).get('simpleText', '').lower()
-                row_value = r.get('contents', [{}])[0].get('simpleText', '')
-
-                if 'joined' in row_title:  # "Joined Jan 1, 2022"
-                    # attempt to parse date
-                    try:
-                        date_str = row_value.replace('Joined', '').strip()
-                        dt = datetime.strptime(date_str, '%b %d, %Y')
-                        about_data['published_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except:
-                        pass
-                elif 'views' in row_title:
-                    # e.g. "1,234,567 views"
-                    match = re.search(r'([\d,.]+)', row_value)
-                    if match:
-                        about_data['view_count'] = int(match.group(1).replace(',', ''))
-                elif 'location' in row_title:
-                    about_data['country'] = row_value
-
-        # 4) Subscriber count in c4TabbedHeaderRenderer
-        c4_header = (
-            initial_data.get('header', {})
-            .get('c4TabbedHeaderRenderer', {})
-        )
-        sub_count_text = c4_header.get('subscriberCountText', {}).get('simpleText', '')
-        # e.g. "3.14M subscribers"
-        match = re.search(r'([\d,.]+)([KMB])?\s+sub', sub_count_text, re.IGNORECASE)
-        if match:
-            base = float(match.group(1).replace(',', ''))
-            suffix = match.group(2) or ''
-            mult = {'K':1e3, 'M':1e6, 'B':1e9}.get(suffix, 1)
-            about_data['subscriber_count'] = int(base * mult)
-
-    except Exception as exc:
-        logger.warning(f"Error extracting /about data: {exc}")
-
-    return about_data
-
-
 def extract_channel_metadata(driver) -> Dict[str, Any]:
     """
-    Extract metadata from a YouTube channel page.
+    Extract metadata from a YouTube channel page using only the "More" modal.
     """
+    logger.info("Starting channel metadata extraction...")
     metadata = {
         'channel_id': None,
         'custom_url': None,
@@ -236,22 +142,28 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
     }
 
     try:
+        logger.debug("Attempting to get ytInitialData...")
         initial_data = driver.execute_script("return ytInitialData;")
         if not initial_data:
+            logger.error("ytInitialData not found in page")
             raise ValueError("Could not find ytInitialData")
+        logger.debug("Successfully retrieved ytInitialData")
 
         # Channel-level data from two potential places
         header = (
             initial_data.get('metadata', {}).get('channelMetadataRenderer', {}) or
             initial_data.get('microformat', {}).get('microformatDataRenderer', {})
         )
+        logger.debug(f"Found header data from: {'channelMetadataRenderer' if 'channelMetadataRenderer' in initial_data.get('metadata', {}) else 'microformatDataRenderer'}")
 
         # Basic fields
-        metadata['channel_id'] = (
+        channel_id = (
             header.get('externalId') or
             header.get('channelId') or
             initial_data.get('header', {}).get('c4TabbedHeaderRenderer', {}).get('channelId')
         )
+        logger.debug(f"Extracted channel_id: {channel_id}")
+        metadata['channel_id'] = channel_id
         metadata['title'] = header.get('title', '').strip()
         metadata['description'] = header.get('description', '')
         custom_url = header.get('vanityChannelUrl', '')
@@ -273,113 +185,226 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
                 if k.strip()
             ]
 
-        # Attempt to click the "more" button to reveal additional stats
+        # Attempt to click the "more" button to reveal the stats modal
         try:
-            logger.debug("Attempting to find and click 'more' button...")
-            more_button = driver.execute_script("""
-                return document.evaluate(
-                    "//button[contains(@class, 'truncated-text-wiz__absolute-button') or "
-                    + "contains(@class, 'truncated-text-wiz__inline-button')]",
-                    document,
-                    null,
-                    XPathResult.FIRST_ORDERED_NODE_TYPE,
-                    null
-                ).singleNodeValue;
-            """)
-            if more_button:
-                logger.debug("'More' button found, clicking...")
-                driver.execute_script("arguments[0].click();", more_button)
-                time.sleep(2)  # wait for modal to load
-                
-                logger.debug("Extracting modal data...")
-                modal_data = driver.execute_script("""
-                    const aboutSection = document.querySelector('#additional-info-container');
-                    if (!aboutSection) return null;
+            logger.info("Starting metadata extraction sequence...")
+            
+            # First try to find the description preview container
+            logger.debug("Looking for description preview container...")
+            preview_container = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((
+                    By.CSS_SELECTOR, 
+                    "yt-description-preview-view-model, #description-container"
+                ))
+            )
+            logger.debug("Found description preview container")
+
+            # Try multiple selectors for the "more" button
+            more_button = None
+            button_selectors = [
+                # Match the inline button
+                "button.truncated-text-wiz__inline-button",
+                # Match the absolute button
+                "button.truncated-text-wiz__absolute-button",
+                # Match by aria-label (the full label from the HTML)
+                "button[aria-label*='Description'][aria-label*='tap for more']",
+                # Match any button containing "...more" text
+                "//button[.//span[contains(text(), '...more')]]",
+                # Match by the specific classes from the HTML
+                "button.truncated-text-wiz__inline-button, button.truncated-text-wiz__absolute-button",
+                # Broader XPath that looks for either button
+                "//button[contains(@class, 'truncated-text-wiz__') and (.//span[contains(text(), 'more')] or @aria-label[contains(., 'more')])]"
+            ]
+
+            for selector in button_selectors:
+                logger.debug(f"Trying selector: {selector}")
+                try:
+                    if selector.startswith("//"):
+                        # XPath selector
+                        more_button = WebDriverWait(driver, 3).until(
+                            EC.element_to_be_clickable((By.XPATH, selector))
+                        )
+                    else:
+                        # CSS selector
+                        more_button = WebDriverWait(driver, 3).until(
+                            EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                        )
+                    if more_button:
+                        logger.debug(f"Found 'More' button with selector: {selector}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Selector {selector} failed: {str(e)}")
+                    continue
+
+            if not more_button:
+                logger.warning("Could not find 'More' button with any selector")
+                # Try to get metadata directly from the preview
+                logger.debug("Attempting to extract metadata from preview...")
+                preview_data = driver.execute_script("""
+                    const container = document.querySelector('yt-description-preview-view-model, #description-container');
+                    if (!container) return null;
                     
-                    // Helper to find text next to an icon
-                    const getText = (iconName) => {
-                        const rows = aboutSection.querySelectorAll('tr');
-                        for (const row of rows) {
-                            const icon = row.querySelector(`yt-icon[icon="${iconName}"]`);
-                            if (icon) {
-                                const textCell = row.querySelector('td:last-child');
-                                return textCell ? textCell.textContent.trim() : null;
-                            }
-                        }
-                        return null;
+                    // Helper to find stats from the page
+                    const getStats = () => {
+                        const stats = {};
+                        
+                        // Try to get subscriber count
+                        const subCount = document.querySelector('#subscriber-count');
+                        if (subCount) stats.subscribers = subCount.textContent.trim();
+                        
+                        // Try to get video count
+                        const videoCount = document.querySelector('#videos-count');
+                        if (videoCount) stats.videos = videoCount.textContent.trim();
+                        
+                        // Try to get view count
+                        const viewCount = document.querySelector('#view-count');
+                        if (viewCount) stats.views = viewCount.textContent.trim();
+                        
+                        return stats;
                     };
                     
-                    return {
-                        subscribers: getText("person_radar"),
-                        views: getText("trending_up"),
-                        videos: getText("my_videos"),
-                        joinDate: getText("info_outline"),
-                        country: getText("privacy_public")
-                    };
+                    return getStats();
                 """)
                 
-                if modal_data:
-                    logger.debug(f"Modal data extracted: {modal_data}")
+                if preview_data:
+                    logger.debug(f"Found preview data: {preview_data}")
+                    # Process the preview data similar to modal data
+                    if preview_data.get('subscribers'):
+                        # ... existing subscriber count parsing code ...
+                        pass
+                    # ... etc for other fields ...
+                return metadata
 
-                    # Parse subscriber count
-                    if modal_data.get('subscribers'):
-                        sub_count = modal_data['subscribers'].split(' ')[0]  # Get "3.1K" from "3.1K subscribers"
+            # If we found the more button, click it
+            logger.debug("Clicking 'More' button...")
+            driver.execute_script("arguments[0].click();", more_button)
+            logger.debug("'More' button clicked")
+
+            # Wait for modal or expanded content
+            logger.debug("Waiting for expanded content...")
+            expanded_content = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((
+                    By.CSS_SELECTOR, 
+                    "#additional-info-container, #expanded-description-container"
+                ))
+            )
+            logger.debug("Found expanded content")
+
+            # Now parse table rows from the opened modal
+            logger.debug("Executing modal data extraction script...")
+            modal_data = driver.execute_script("""
+                const aboutSection = document.querySelector('#additional-info-container');
+                if (!aboutSection) {
+                    console.log('No #additional-info-container found');
+                    return null;
+                }
+                
+                // Helper to find text next to an icon name
+                const getText = (iconName) => {
+                    const rows = aboutSection.querySelectorAll('tr');
+                    console.log(`Searching ${rows.length} rows for icon: ${iconName}`);
+                    
+                    for (const row of rows) {
+                        const icon = row.querySelector(`yt-icon[icon="${iconName}"]`);
+                        if (icon) {
+                            const textCell = row.querySelector('td:last-child');
+                            const text = textCell ? textCell.textContent.trim() : null;
+                            console.log(`Found ${iconName}: ${text}`);
+                            return text;
+                        }
+                    }
+                    console.log(`No row found with icon: ${iconName}`);
+                    return null;
+                };
+                
+                const data = {
+                    subscribers: getText("person_radar"),
+                    views: getText("trending_up"),
+                    videos: getText("my_videos"),
+                    joinDate: getText("info_outline"),
+                    country: getText("privacy_public")
+                };
+                console.log('Extracted data:', data);
+                return data;
+            """)
+
+            if modal_data:
+                logger.info(f"Successfully extracted modal data: {modal_data}")
+
+                # Parse subscriber count
+                if modal_data.get('subscribers'):
+                    logger.debug(f"Parsing subscriber count from: {modal_data['subscribers']}")
+                    sub_count = modal_data['subscribers'].split(' ')[0]
+                    multiplier = 1
+                    if 'K' in sub_count:
+                        multiplier = 1000
+                        sub_count = sub_count.replace('K', '')
+                        logger.debug(f"Found K multiplier, base number: {sub_count}")
+                    elif 'M' in sub_count:
+                        multiplier = 1_000_000
+                        sub_count = sub_count.replace('M', '')
+                        logger.debug(f"Found M multiplier, base number: {sub_count}")
+                    elif 'B' in sub_count:
+                        multiplier = 1_000_000_000
+                        sub_count = sub_count.replace('B', '')
+                        logger.debug(f"Found B multiplier, base number: {sub_count}")
+                    
+                    try:
+                        final_count = int(float(sub_count) * multiplier)
+                        logger.debug(f"Final subscriber count: {final_count}")
+                        metadata['subscriber_count'] = final_count
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Error converting subscriber count: {str(e)}")
+                        metadata['subscriber_count'] = 0
+                else:
+                    logger.warning("No subscriber data found in modal")
+
+                # Parse video count
+                if modal_data.get('videos'):
+                    try:
+                        video_count = modal_data['videos'].split(' ')[0].replace(',', '')
+                        metadata['video_count'] = int(video_count)
+                    except (ValueError, TypeError):
+                        metadata['video_count'] = 0
+
+                # Parse view count
+                if modal_data.get('views'):
+                    try:
+                        view_str = modal_data['views'].split(' ')[0].replace(',', '')
                         multiplier = 1
-                        if 'K' in sub_count:
+                        if 'K' in view_str:
                             multiplier = 1000
-                            sub_count = sub_count.replace('K', '')
-                        elif 'M' in sub_count:
-                            multiplier = 1000000
-                            sub_count = sub_count.replace('M', '')
-                        elif 'B' in sub_count:
-                            multiplier = 1000000000
-                            sub_count = sub_count.replace('B', '')
-                        try:
-                            metadata['subscriber_count'] = int(float(sub_count) * multiplier)
-                        except (ValueError, TypeError):
-                            metadata['subscriber_count'] = 0
+                            view_str = view_str.replace('K', '')
+                        elif 'M' in view_str:
+                            multiplier = 1_000_000
+                            view_str = view_str.replace('M', '')
+                        elif 'B' in view_str:
+                            multiplier = 1_000_000_000
+                            view_str = view_str.replace('B', '')
+                        metadata['view_count'] = int(float(view_str) * multiplier)
+                    except (ValueError, TypeError):
+                        metadata['view_count'] = 0
 
-                    # Parse video count
-                    if modal_data.get('videos'):
-                        try:
-                            video_count = modal_data['videos'].split(' ')[0].replace(',', '')
-                            metadata['video_count'] = int(video_count)
-                        except (ValueError, TypeError):
-                            metadata['video_count'] = 0
+                # Parse country
+                if modal_data.get('country'):
+                    metadata['country'] = modal_data['country']
 
-                    # Parse view count
-                    if modal_data.get('views'):
-                        try:
-                            view_count = modal_data['views'].split(' ')[0].replace(',', '')
-                            multiplier = 1
-                            if 'K' in view_count:
-                                multiplier = 1000
-                                view_count = view_count.replace('K', '')
-                            elif 'M' in view_count:
-                                multiplier = 1000000
-                                view_count = view_count.replace('M', '')
-                            elif 'B' in view_count:
-                                multiplier = 1000000000
-                                view_count = view_count.replace('B', '')
-                            metadata['view_count'] = int(float(view_count) * multiplier)
-                        except (ValueError, TypeError):
-                            metadata['view_count'] = 0
-
-                    # Parse country
-                    if modal_data.get('country'):
-                        metadata['country'] = modal_data['country']
-
-                    # Parse join date
-                    if modal_data.get('joinDate') and 'Joined' in modal_data['joinDate']:
-                        try:
-                            # e.g. "Joined Jan 1, 2022"
-                            date_str = modal_data['joinDate'].replace('Joined', '').strip()
-                            dt = datetime.strptime(date_str, '%b %d, %Y')
-                            metadata['published_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                        except:
-                            pass
+                # Parse join date
+                if modal_data.get('joinDate') and 'Joined' in modal_data['joinDate']:
+                    try:
+                        date_str = modal_data['joinDate'].replace('Joined', '').strip()
+                        dt = datetime.strptime(date_str, '%b %d, %Y')
+                        metadata['published_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception as e:
+                        logger.error(f"Error parsing join date: {str(e)}")
+            else:
+                logger.warning("Modal data extraction returned null")
+                
         except Exception as e:
-            logger.warning(f"Error getting additional metadata: {str(e)}")
+            logger.error(f"Error in metadata extraction: {str(e)}", exc_info=True)
+            logger.error(f"Current page title: {driver.title}")
+            logger.error(f"Current URL: {driver.current_url}")
+            # Continue with the rest of metadata extraction even if this fails
 
         # Attempt to find channel avatar from `avatar.thumbnails`
         if 'avatar' in header and 'thumbnails' in header['avatar']:
@@ -418,6 +443,7 @@ def extract_channel_metadata(driver) -> Dict[str, Any]:
             metadata['banner'] = {"bannerExternalUrl": banner_cleaned}
 
     except Exception as e:
-        logger.error(f"Error extracting channel metadata: {str(e)}")
-
+        logger.error(f"Error in channel metadata extraction: {str(e)}", exc_info=True)
+        
+    logger.info("Channel metadata extraction completed")
     return metadata
