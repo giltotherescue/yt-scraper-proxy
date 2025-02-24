@@ -36,7 +36,7 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 **Endpoint:** POST /scrape
 
 **Required Headers:**
-- Content-Type: application/json  
+- Content-Type: application/json
 - X-API-Key: Your API key
 
 **Request Body Parameters:**
@@ -77,11 +77,11 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 1. First time setup:
     ```bash
     # Important: In Dockerfile, comment/uncomment the appropriate architecture line:
-    
+
     # For M1/M2 Mac (ARM64):
     # FROM --platform=linux/arm64 python:3.10-slim-buster
-    
-    # For DigitalOcean/Production (AMD64): 
+
+    # For DigitalOcean/Production (AMD64):
     # FROM --platform=linux/amd64 python:3.10-slim-buster
 
     docker-compose up --build -d
@@ -95,7 +95,7 @@ A Flask microservice that scrapes YouTube channel metadata and video information
     # View logs
     docker logs -f yt-scraper-proxy-container
 
-    # Stop containers 
+    # Stop containers
     docker-compose down
     ```
 
