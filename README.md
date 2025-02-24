@@ -109,8 +109,11 @@ Note: You only need to rebuild (`--build`) if you:
 ## Production Build (DigitalOcean)
 ```
 # Build
+
 docker-compose build
+
 # Push to DigitalOcean Container Registry
+
 docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container && docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
 ```
 
