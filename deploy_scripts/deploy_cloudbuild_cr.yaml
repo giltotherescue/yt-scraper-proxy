@@ -2,38 +2,38 @@ steps:
   # Step 0: Fetch cache
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
-    args: ['-c', 'docker pull ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest || exit 0']
+    args: ['-c', 'docker pull ${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest || exit 0']
 
    # Step 1: Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-        '--cache-from', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
-        '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
-        '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
+        '--cache-from', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
+        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
+        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
       '.']
 
   # Step 2: Push the Docker image to Google Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}']
+    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}']
 
   # Step 3: Push the Docker image to Google Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest']
+    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest']
 
   # Step 4: Deploy the image to Google Cloud Run Service
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args: [
-      'run', 'deploy', '${_SUB_NAME_PREFIX}',
-      '--image', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
+      'run', 'deploy', '${_SUB_NAME_PREFIX}-$(INSTANCE_NAME_NUM)',
+      '--image', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
       '--region', '${_REGION}',
       '--allow-unauthenticated',
       '--min-instances', '0',
       '--max-instances', '1',
       '--port', '${_PORT}',
-      '--cpu', '512m',
-      '--memory', '1Gi',
+      '--cpu', '2000m',
+      '--memory', '2Gi',
       '--set-env-vars', 'PROJECT_ID=${_PROJECT_ID},API_KEY=${_API_KEY}',
       '--network', 'default',
       '--subnet', 'default',
@@ -43,7 +43,9 @@ substitutions:
   _PORT: ''
   _ARTIFACT_REPO: ''
   _REGION: ''
+  _REPO_REGION: ''
   _SUB_NAME_PREFIX: ''
+  _INSTANCE_NAME_NUM: ''
   _UNIQUE_PREFIX: ''
   _API_KEY: ''
 timeout: '1600s'
