@@ -175,4 +175,3 @@ cython_debug/
 __pycache__/
 *.pyc
 .DS_Store
-deploy_scripts

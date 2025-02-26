@@ -1,32 +1,10 @@
 steps:
-  # Step 0: Fetch cache
-  - name: 'gcr.io/cloud-builders/docker'
-    entrypoint: 'bash'
-    args: ['-c', 'docker pull ${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest || exit 0']
-
-   # Step 1: Build the Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: [
-      'build',
-        '--cache-from', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
-        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
-        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
-      '.']
-
-  # Step 2: Push the Docker image to Google Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}']
-
-  # Step 3: Push the Docker image to Google Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest']
-
-  # Step 4: Deploy the image to Google Cloud Run Service
+  # Step 1: Deploy the image to Google Cloud Run Service
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args: [
-      'run', 'deploy', '${_SUB_NAME_PREFIX}-$(INSTANCE_NAME_NUM)',
-      '--image', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
+      'run', 'deploy', '${_SUB_NAME_PREFIX}-${_INSTANCE_NAME_NUM}',
+      '--image', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
       '--region', '${_REGION}',
       '--allow-unauthenticated',
       '--min-instances', '0',
@@ -38,14 +16,14 @@ steps:
       '--network', 'default',
       '--subnet', 'default',
     ]
+
 substitutions:
   _PROJECT_ID: ''
   _PORT: ''
+  _SUB_NAME_PREFIX: ''
   _ARTIFACT_REPO: ''
   _REGION: ''
   _REPO_REGION: ''
-  _SUB_NAME_PREFIX: ''
-  _INSTANCE_NAME_NUM: ''
-  _UNIQUE_PREFIX: ''
   _API_KEY: ''
+  _INSTANCE_NAME_NUM: ''
 timeout: '1600s'
