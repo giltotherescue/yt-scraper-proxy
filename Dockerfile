@@ -1,5 +1,5 @@
 # Use this for local development on Mac
-# FROM --platform=linux/arm64 python:3.10-slim-buster
+#FROM --platform=linux/arm64 python:3.10-slim-buster
 
 # Use this for DigitalOcean deployment
 FROM --platform=linux/amd64 python:3.10-slim-buster
@@ -68,4 +68,4 @@ ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 
 # Final command to run your Flask app with Gunicorn
-CMD ["gunicorn", "--worker-tmp-dir", "/dev/shm", "app:app", "-b", "0.0.0.0:8080"]
+CMD ["gunicorn", "--worker-tmp-dir", "/dev/shm", "app:app", "-b", "0.0.0.0:8080", "--timeout", "600"]

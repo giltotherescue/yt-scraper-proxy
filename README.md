@@ -36,7 +36,7 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 **Endpoint:** POST /scrape
 
 **Required Headers:**
-- Content-Type: application/json  
+- Content-Type: application/json
 - X-API-Key: Your API key
 
 **Request Body Parameters:**
@@ -77,11 +77,11 @@ A Flask microservice that scrapes YouTube channel metadata and video information
 1. First time setup:
     ```bash
     # Important: In Dockerfile, comment/uncomment the appropriate architecture line:
-    
+
     # For M1/M2 Mac (ARM64):
     # FROM --platform=linux/arm64 python:3.10-slim-buster
-    
-    # For DigitalOcean/Production (AMD64): 
+
+    # For DigitalOcean/Production (AMD64):
     # FROM --platform=linux/amd64 python:3.10-slim-buster
 
     docker-compose up --build -d
@@ -95,7 +95,7 @@ A Flask microservice that scrapes YouTube channel metadata and video information
     # View logs
     docker logs -f yt-scraper-proxy-container
 
-    # Stop containers 
+    # Stop containers
     docker-compose down
     ```
 
@@ -109,10 +109,54 @@ Note: You only need to rebuild (`--build`) if you:
 ## Production Build (DigitalOcean)
 ```
 # Build
+
 docker-compose build
+
 # Push to DigitalOcean Container Registry
+
 docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container && docker push registry.digitalocean.com/subscribr-proxy/yt-scraper-proxy-container
 ```
 
 ## Deploy to DigitalOcean
 [https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
+
+
+## Deploy to GCP
+
+### Install Google Cloud CLI
+[https://cloud.google.com/sdk/docs/install](Install Google Cloud CLI)
+
+### Authenticate with Google Cloud
+```bash
+  gcloud auth login
+```
+Follow the instructions in the browser to authenticate.
+
+### Set the project
+```bash
+  gcloud config set project <PROJECT_ID>
+```
+
+### Set correct environment variables in .env
+
+- SERVER_PORT=8080 -> Port from the Dockerfile
+- PROJECT_ID=your-project-id-here -> Google Cloud project ID
+- GLOBAL_NAME_PREFIX=ps -> Global prefix for all resources
+- SUB_NAME_PREFIX=proxy-scrapper -> Service name prefix
+- ARTIFACT_REPO=${GLOBAL_NAME_PREFIX}-repo -> Artifact repository name
+- REPO_REGION=us -> Artifact repository region
+- REGIONS=us-east1,us-west1 -> Regions where the service will be deployed (comma separated)
+
+
+### Build and push Docker image to Google Cloud
+This will build the Docker image, tag it with the Google Cloud registry URL, and push it to the registry.
+```bash
+  sh deploy_scripts/push-to-gcp.sh
+```
+
+### Deploy to Google Cloud Run
+This will deploy the service to Google Cloud Run in the regions specified in the .env file.
+1 service per region will be created.
+```bash
+  sh deploy_scripts/deploy-to-cr.sh
+```

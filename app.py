@@ -4,33 +4,32 @@ full YouTube channel/video metadata, then returns JSON to the caller.
 No database logic is included here.
 """
 
-import os
 import json
-import time
 import logging
-import re
-import random
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Union
-from functools import wraps
+import os
 import platform
+import time
+from datetime import datetime
+from functools import wraps
 from http import HTTPStatus
 
-from flask import Flask, request, jsonify
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import urllib.parse
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from flask_cors import CORS
 from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 
-from utils import error_response, get_published_date, convert_duration_to_iso
-from browser_utils import configure_chrome_options, configure_driver_timeouts, wait_for_page_load
-from youtube_extractor import get_video_thumbnails, extract_video_metadata_from_element, extract_channel_metadata
+from browser_utils import (
+    configure_chrome_options,
+    configure_driver_timeouts,
+    wait_for_page_load,
+)
+from utils import error_response
+from youtube_extractor import (
+    extract_channel_metadata,
+    extract_video_metadata_from_element,
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -48,18 +47,20 @@ logger.setLevel(logging.DEBUG)
 # Initialize the Selenium WebDriver globally for both dev and production
 ###############################################################################
 chrome_options = configure_chrome_options()
-service = Service('/usr/bin/chromedriver')
+service = Service("/usr/bin/chromedriver")
 driver = webdriver.Chrome(service=service, options=chrome_options)
 configure_driver_timeouts(driver)
+
 
 @app.teardown_request
 def cleanup_driver(exception=None):
     pass
 
+
 ###############################################################################
 # Utility Functions for Metadata Extraction
 ###############################################################################
-def scroll_to_load_videos(driver, max_videos: int, timeout: int = 60) -> List:
+def scroll_to_load_videos(driver, max_videos: int, timeout: int = 60) -> list:
     """
     Scroll the channel's /videos page to load up to `max_videos` videos.
     """
@@ -110,16 +111,18 @@ def scroll_to_load_videos(driver, max_videos: int, timeout: int = 60) -> List:
 def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key')
-        if api_key and api_key == os.getenv('API_KEY'):
+        api_key = request.headers.get("X-API-Key")
+        if api_key and api_key == os.getenv("API_KEY"):
             return f(*args, **kwargs)
         return jsonify({"error": "Invalid API key"}), 401
+
     return decorated_function
+
 
 ###############################################################################
 # Flask Endpoint
 ###############################################################################
-@app.route('/scrape', methods=['POST'])
+@app.route("/scrape", methods=["POST"])
 @require_api_key
 def scrape():
     """
@@ -129,20 +132,17 @@ def scrape():
     try:
         payload = request.json
         if not payload:
-            return error_response(
-                "Missing JSON payload", 
-                HTTPStatus.BAD_REQUEST
-            )
+            return error_response("Missing JSON payload", HTTPStatus.BAD_REQUEST)
 
-        if 'channel_handle' not in payload:
+        if "channel_handle" not in payload:
             return error_response(
                 "channel_handle is required in request body",
                 HTTPStatus.BAD_REQUEST,
-                {"required_fields": ["channel_handle"]}
+                {"required_fields": ["channel_handle"]},
             )
 
-        channel_handle = payload['channel_handle'].strip()
-        max_videos = payload.get('max_videos', 100)
+        channel_handle = payload["channel_handle"].strip()
+        max_videos = payload.get("max_videos", 100)
 
         url = f"https://youtube.com/{channel_handle}/videos"
         logger.info(f"Scraping channel: {channel_handle} with max_videos={max_videos}")
@@ -152,15 +152,15 @@ def scrape():
             return error_response(
                 "Failed to load YouTube page",
                 HTTPStatus.BAD_GATEWAY,
-                {"url": url, "timeout": "30s"}
+                {"url": url, "timeout": "30s"},
             )
 
         channel_data = extract_channel_metadata(driver)
-        if not channel_data.get('channel_id'):
+        if not channel_data.get("channel_id"):
             return error_response(
                 "Channel not found or is unavailable",
                 HTTPStatus.NOT_FOUND,
-                {"channel_handle": channel_handle}
+                {"channel_handle": channel_handle},
             )
 
         # Scroll to load videos
@@ -173,13 +173,13 @@ def scrape():
                 HTTPStatus.NOT_FOUND,
                 {
                     "channel_handle": channel_handle,
-                    "channel_id": channel_data.get('channel_id'),
+                    "channel_id": channel_data.get("channel_id"),
                     "possible_reasons": [
                         "Channel has no public videos",
                         "Channel's videos tab is unavailable",
-                        "YouTube layout changed"
-                    ]
-                }
+                        "YouTube layout changed",
+                    ],
+                },
             )
 
         videos = []
@@ -190,15 +190,14 @@ def scrape():
                 if vdata:
                     videos.append(vdata)
                 else:
-                    failed_videos.append({
-                        "index": len(videos) + len(failed_videos),
-                        "reason": "Failed to extract metadata"
-                    })
+                    failed_videos.append(
+                        {
+                            "index": len(videos) + len(failed_videos),
+                            "reason": "Failed to extract metadata",
+                        }
+                    )
             except Exception as e:
-                failed_videos.append({
-                    "index": len(videos) + len(failed_videos),
-                    "reason": str(e)
-                })
+                failed_videos.append({"index": len(videos) + len(failed_videos), "reason": str(e)})
 
         response_data = {
             "channel": channel_data,
@@ -207,28 +206,22 @@ def scrape():
                 "total_videos_found": len(video_elements),
                 "videos_processed": len(videos),
                 "videos_failed": len(failed_videos),
-                "failed_videos_details": failed_videos if failed_videos else None
-            }
+                "failed_videos_details": failed_videos if failed_videos else None,
+            },
         }
         return jsonify(response_data), HTTPStatus.OK
 
     except json.JSONDecodeError:
-        return error_response(
-            "Invalid JSON in request body",
-            HTTPStatus.BAD_REQUEST
-        )
+        return error_response("Invalid JSON in request body", HTTPStatus.BAD_REQUEST)
     except Exception as e:
         logger.error(f"Unexpected error processing request: {str(e)}")
-        return error_response(
-            "Internal server error",
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            {"error": str(e)}
-        )
+        return error_response("Internal server error", HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
 
 ###############################################################################
 # Health Check Endpoint
 ###############################################################################
-@app.route('/_health', methods=['GET'])
+@app.route("/_health", methods=["GET"])
 def health_check():
     """
     Health check endpoint for DigitalOcean App Platform.
@@ -243,7 +236,7 @@ def health_check():
             "system": {
                 "python_version": platform.python_version(),
                 "platform": platform.platform(),
-            }
+            },
         }
 
         # Check if Selenium/Chrome is working
@@ -263,17 +256,20 @@ def health_check():
         return jsonify(health_data), 200
 
     except Exception as e:
-        return jsonify({
-            "status": "fail",
-            "timestamp": datetime.utcnow().isoformat(),
-            "error": str(e)
-        }), 500
+        return jsonify(
+            {
+                "status": "fail",
+                "timestamp": datetime.utcnow().isoformat(),
+                "error": str(e),
+            }
+        ), 500
+
 
 ###############################################################################
 # Local dev entry point
 ###############################################################################
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Use Flask's dev server locally, but gunicorn in production
-    port = int(os.getenv('PORT', 8080))
-    print('Listening on port %s' % (port))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.getenv("PORT", 8080))
+    print("Listening on port %s" % (port))
+    app.run(host="0.0.0.0", port=port, debug=True)

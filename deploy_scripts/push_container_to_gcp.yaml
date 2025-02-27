@@ -1,0 +1,29 @@
+steps:
+  # Step 0: Fetch cache
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args: ['-c', 'docker pull ${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest || exit 0']
+
+   # Step 1: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+        '--cache-from', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
+        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}',
+        '-t', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest',
+      '.']
+
+  # Step 2: Push the Docker image to Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:${_UNIQUE_PREFIX}']
+
+  # Step 3: Push the Docker image to Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REPO_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPO}/${_SUB_NAME_PREFIX}-image:latest']
+
+substitutions:
+  _SUB_NAME_PREFIX: ''
+  _UNIQUE_PREFIX: ''
+  _ARTIFACT_REPO: ''
+  _REPO_REGION: ''
+timeout: '1600s'

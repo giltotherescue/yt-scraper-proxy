@@ -1,36 +1,36 @@
 alerts:
-- rule: DEPLOYMENT_FAILED
-- rule: DOMAIN_FAILED
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
 envs:
-- key: API_KEY
-  scope: RUN_AND_BUILD_TIME
-  value: hsUHrPjjKYDZPDP9MLLgzCimGsxkMURUu
+  - key: API_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: hsUHrPjjKYDZPDP9MLLgzCimGsxkMURUu
 features:
-- buildpack-stack=ubuntu-22
+  - buildpack-stack=ubuntu-22
 ingress:
   rules:
-  - component:
-      name: yt-scraper-proxy-container
-    match:
-      path:
-        prefix: /
+    - component:
+        name: yt-scraper-proxy-container
+      match:
+        path:
+          prefix: /
 name: seahorse-app
 region: nyc
 services:
-- http_port: 8080
-  image:
-    deploy_on_push:
-      enabled: true
-    registry_type: DOCR
-    repository: yt-scraper-proxy-container
-    tag: latest
-  instance_count: 1
-  instance_size_slug: apps-s-1vcpu-1gb
-  name: yt-scraper-proxy-container
-  health_check:
-    http_path: /_health
-    initial_delay_seconds: 30
-    period_seconds: 30
-    timeout_seconds: 10
-    success_threshold: 1
-    failure_threshold: 3
+  - http_port: 8080
+    image:
+      deploy_on_push:
+        enabled: true
+      registry_type: DOCR
+      repository: yt-scraper-proxy-container
+      tag: latest
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    name: yt-scraper-proxy-container
+    health_check:
+      http_path: /_health
+      initial_delay_seconds: 30
+      period_seconds: 30
+      timeout_seconds: 10
+      success_threshold: 1
+      failure_threshold: 3
