@@ -119,3 +119,44 @@ docker tag yt-scraper-proxy-scraper registry.digitalocean.com/subscribr-proxy/yt
 
 ## Deploy to DigitalOcean
 [https://docs.digitalocean.com/products/container-registry/getting-started/quickstart/](Install to DigitalOcean Container Registy)
+
+
+## Deploy to GCP
+
+### Install Google Cloud CLI
+[https://cloud.google.com/sdk/docs/install](Install Google Cloud CLI)
+
+### Authenticate with Google Cloud
+```bash
+  gcloud auth login
+```
+Follow the instructions in the browser to authenticate.
+
+### Set the project
+```bash
+  gcloud config set project <PROJECT_ID>
+```
+
+### Set correct environment variables in .env
+
+- SERVER_PORT=8080 -> Port from the Dockerfile
+- PROJECT_ID=your-project-id-here -> Google Cloud project ID
+- GLOBAL_NAME_PREFIX=ps -> Global prefix for all resources
+- SUB_NAME_PREFIX=proxy-scrapper -> Service name prefix
+- ARTIFACT_REPO=${GLOBAL_NAME_PREFIX}-repo -> Artifact repository name
+- REPO_REGION=us -> Artifact repository region
+- REGIONS=us-east1,us-west1 -> Regions where the service will be deployed (comma separated)
+
+
+### Build and push Docker image to Google Cloud
+This will build the Docker image, tag it with the Google Cloud registry URL, and push it to the registry.
+```bash
+  sh deploy_scripts/push-to-gcp.sh
+```
+
+### Deploy to Google Cloud Run
+This will deploy the service to Google Cloud Run in the regions specified in the .env file.
+1 service per region will be created.
+```bash
+  sh deploy_scripts/deploy-to-cr.sh
+```
